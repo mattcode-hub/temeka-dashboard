@@ -2,7 +2,7 @@
 const HUBSPOT_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
 const HUBSPOT_BASE = 'https://api.hubapi.com';
 
-// Known owner ID -> name mapping (primary sales reps in this HubSpot account)
+// Known owner ID -> name mapping (primary sales reps)
 const KNOWN_OWNERS = {
   '50294378': 'Matt Code',
   '52261992': 'Chris Isley',
@@ -16,9 +16,7 @@ async function fetchAllDeals() {
     url.searchParams.set('limit', '100');
     url.searchParams.set('properties', 'dealname,amount,dealstage,hubspot_owner_id,hs_deal_stage_probability');
     if (after) url.searchParams.set('after', after);
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}` }
-    });
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}` } });
     if (!res.ok) throw new Error(`Deals API error ${res.status}`);
     const data = await res.json();
     deals.push(...data.results);
@@ -35,9 +33,7 @@ async function fetchAllContacts() {
     url.searchParams.set('limit', '100');
     url.searchParams.set('properties', 'firstname,lastname,company,jobtitle,hs_lead_status,hubspot_owner_id');
     if (after) url.searchParams.set('after', after);
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}` }
-    });
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}` } });
     if (!res.ok) throw new Error(`Contacts API error ${res.status}`);
     const data = await res.json();
     contacts.push(...data.results);
@@ -47,7 +43,6 @@ async function fetchAllContacts() {
 }
 
 async function fetchOwners() {
-  // Always start with known owners as fallback
   const map = { ...KNOWN_OWNERS };
   try {
     const res = await fetch(`${HUBSPOT_BASE}/crm/v3/owners?limit=100`, {
@@ -59,13 +54,31 @@ async function fetchOwners() {
         const name = (`${o.firstName || ''} ${o.lastName || ''}`).trim() || o.email || null;
         if (name) map[String(o.id)] = name;
       }
-    } else {
-      console.error('Owners endpoint failed:', res.status);
     }
   } catch (e) {
     console.error('fetchOwners error:', e.message);
   }
   return map;
+}
+
+async function fetchStageLabels() {
+  const stageMap = {};
+  try {
+    const res = await fetch(`${HUBSPOT_BASE}/crm/v3/pipelines/deals`, {
+      headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      for (const pipeline of (data.results || [])) {
+        for (const stage of (pipeline.stages || [])) {
+          stageMap[stage.id] = stage.label;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('fetchStageLabels error:', e.message);
+  }
+  return stageMap;
 }
 
 export default async function handler(req, res) {
@@ -75,10 +88,11 @@ export default async function handler(req, res) {
   if (!HUBSPOT_TOKEN) return res.status(500).json({ error: 'HUBSPOT_ACCESS_TOKEN not configured' });
 
   try {
-    const [deals, contacts, ownerMap] = await Promise.all([
+    const [deals, contacts, ownerMap, stageMap] = await Promise.all([
       fetchAllDeals(),
       fetchAllContacts(),
-      fetchOwners()
+      fetchOwners(),
+      fetchStageLabels()
     ]);
 
     const normalizedDeals = deals.map(d => ({
@@ -86,6 +100,7 @@ export default async function handler(req, res) {
       name: d.properties.dealname || 'Unnamed Deal',
       amount: parseFloat(d.properties.amount || '0') || 0,
       stage: d.properties.dealstage || 'Unknown',
+      stageLabel: stageMap[d.properties.dealstage] || d.properties.dealstage || 'Unknown',
       probability: parseFloat(d.properties.hs_deal_stage_probability || '0') || 0,
       ownerId: d.properties.hubspot_owner_id || null,
       ownerName: ownerMap[String(d.properties.hubspot_owner_id)] || 'Unknown'
@@ -105,6 +120,7 @@ export default async function handler(req, res) {
       deals: normalizedDeals,
       contacts: normalizedContacts,
       owners: Object.entries(ownerMap).map(([id, name]) => ({ id, name })),
+      stageLabels: stageMap,
       lastUpdated: new Date().toISOString(),
       totalDeals: normalizedDeals.length,
       totalContacts: normalizedContacts.length
