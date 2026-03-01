@@ -1,0 +1,15 @@
+name: Nightly HubSpot Refresh
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping HubSpot data endpoint
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" \
+            https://temeka-dashboard.vercel.app/api/hubspot-data
