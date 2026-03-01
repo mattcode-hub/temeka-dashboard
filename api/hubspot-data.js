@@ -2,6 +2,13 @@
 const HUBSPOT_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
 const HUBSPOT_BASE = 'https://api.hubapi.com';
 
+// Known owner mappings as fallback (updated from HubSpot account)
+// Owner ID -> Name mapping (these are the primary sales reps)
+const KNOWN_OWNERS = {
+  '50294378': 'Matt Code',
+  '52261992': 'Chris Isley',
+};
+
 async function fetchAllDeals() {
   const deals = [];
   let after = undefined;
@@ -40,15 +47,26 @@ async function fetchAllContacts() {
   return contacts;
 }
 
-async function fetchOwnerById(ownerId) {
+async function fetchOwners() {
   try {
-    const res = await fetch(`${HUBSPOT_BASE}/crm/v3/owners/${ownerId}`, {
+    const res = await fetch(`${HUBSPOT_BASE}/crm/v3/owners?limit=100`, {
       headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}` }
     });
-    if (!res.ok) return null;
-    const o = await res.json();
-    return { id: String(o.id), name: (`${o.firstName || ''} ${o.lastName || ''}`).trim() || o.email || 'Unknown' };
-  } catch (e) { return null; }
+    if (!res.ok) {
+      console.error('Owners endpoint failed:', res.status);
+      return {};
+    }
+    const data = await res.json();
+    const map = { ...KNOWN_OWNERS };
+    for (const o of (data.results || [])) {
+      const name = (`${o.firstName || ''} ${o.lastName || ''}`).trim() || o.email || 'Unknown';
+      map[String(o.id)] = name;
+    }
+    return map;
+  } catch (e) {
+    console.error('fetchOwners failed:', e.message);
+    return { ...KNOWN_OWNERS };
+  }
 }
 
 export default async function handler(req, res) {
@@ -58,18 +76,12 @@ export default async function handler(req, res) {
   if (!HUBSPOT_TOKEN) return res.status(500).json({ error: 'HUBSPOT_ACCESS_TOKEN not configured' });
 
   try {
-    const [deals, contacts] = await Promise.all([fetchAllDeals(), fetchAllContacts()]);
-
-    // Get unique owner IDs from deals and contacts
-    const uniqueOwnerIds = [...new Set([
-      ...deals.map(d => d.properties.hubspot_owner_id),
-      ...contacts.map(c => c.properties.hubspot_owner_id)
-    ].filter(Boolean))];
-
-    // Fetch all unique owners in parallel (batched)
-    const ownerResults = await Promise.all(uniqueOwnerIds.map(id => fetchOwnerById(id)));
-    const ownerMap = {};
-    ownerResults.forEach(o => { if (o) ownerMap[o.id] = o.name; });
+    // Fetch deals and contacts in parallel, owners separately
+    const [deals, contacts, ownerMap] = await Promise.all([
+      fetchAllDeals(),
+      fetchAllContacts(),
+      fetchOwners()
+    ]);
 
     const normalizedDeals = deals.map(d => ({
       id: d.id,
