@@ -1,12 +1,26 @@
 // Vercel serverless function - fetches HubSpot deals and contacts
+// Filters to active (open) deals only - matching HubSpot saved views
 const HUBSPOT_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
 const HUBSPOT_BASE = 'https://api.hubapi.com';
 
-// Known owner ID -> name mapping (primary sales reps)
+// Known owner ID -> name mapping
 const KNOWN_OWNERS = {
   '50294378': 'Matt Code',
   '52261992': 'Chris Isley',
 };
+
+// Active (open deal) stage IDs from the Temeka Pipeline
+// These are the only stages shown in the Matt Code Pipeline and Chris Deals views
+// Excludes: Closed & Completed (16051229), Deal Dead (16051230), and all OLD archived stages
+const ACTIVE_STAGE_IDS = new Set([
+  '964416851', // Prospecting (open deal)
+  '26089121',  // LOI/Bid Stage (open deal)
+  '13211382',  // Deal On Hold (open deal)
+  '5909289',   // Exist Cust./New Opp. (open deal)
+  '4358557',   // New Cust./New Opp (open deal)
+  '5908905',   // Bid Approved - Shift to GS & QB
+  '9827016',   // Completed - Invoiced Final
+]);
 
 async function fetchAllDeals() {
   const deals = [];
@@ -19,7 +33,9 @@ async function fetchAllDeals() {
     const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}` } });
     if (!res.ok) throw new Error(`Deals API error ${res.status}`);
     const data = await res.json();
-    deals.push(...data.results);
+    // Only include active/open stage deals
+    const activeDeals = data.results.filter(d => ACTIVE_STAGE_IDS.has(d.properties.dealstage));
+    deals.push(...activeDeals);
     if (data.paging?.next?.after) { after = data.paging.next.after; } else { break; }
   }
   return deals;
