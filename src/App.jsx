@@ -1,23 +1,5 @@
 import React, { useState, useEffect } from 'react';
 
-const STAGE_LABELS = {
-  'appointmentscheduled': 'Prospecting',
-  'qualifiedtobuy': 'New Cust./New Opp',
-  'presentationscheduled': 'New Cust./New Opp',
-  'decisionmakerboughtin': 'LOI/Bid Stage',
-  'contractsent': 'LOI/Bid Stage',
-  'closedwon': 'Closed Won',
-  'closedlost': 'Closed Lost',
-  'New Cust./New Opp': 'New Cust./New Opp',
-  'LOI/Bid Stage': 'LOI/Bid Stage',
-  'Prospecting': 'Prospecting',
-  'Exist Cust./New Opp': 'Exist Cust./New Opp',
-};
-
-function formatStageName(stage) {
-  return STAGE_LABELS[stage] || stage || 'Prospecting';
-}
-
 function isMatt(name) {
   if (!name) return false;
   const n = name.toLowerCase();
@@ -28,6 +10,16 @@ function isChris(name) {
   if (!name) return false;
   const n = name.toLowerCase();
   return n.includes('chris') || n.includes('isley');
+}
+
+function getStageBadgeClass(stageLabel) {
+  const s = (stageLabel || '').toLowerCase();
+  if (s.includes('prospect') || s.includes('appoint')) return 'stage-prospecting';
+  if (s.includes('new') || s.includes('qualified') || s.includes('presentation')) return 'stage-new';
+  if (s.includes('loi') || s.includes('bid') || s.includes('decision') || s.includes('contract')) return 'stage-loi';
+  if (s.includes('won') || s.includes('closed won')) return 'stage-new';
+  if (s.includes('lost') || s.includes('closed lost')) return 'stage-existing';
+  return 'stage-existing';
 }
 
 export default function TemekaSalesDashboard() {
@@ -67,15 +59,10 @@ export default function TemekaSalesDashboard() {
   const chrisTotal = total(chrisDeals);
   const combinedTotal = mattTotal + chrisTotal;
 
-  const fmtDate = (d) => !d ? '' : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-
-  const badge = (stage) => {
-    const s = formatStageName(stage);
-    if (s.includes('Prospect')) return 'stage-prospecting';
-    if (s.includes('New')) return 'stage-new';
-    if (s.includes('LOI')) return 'stage-loi';
-    return 'stage-existing';
-  };
+  const fmtDate = (d) => !d ? '' : d.toLocaleDateString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true
+  });
 
   const Card = ({ title, value, sub, color }) => (
     <div className="metric-card">
@@ -89,7 +76,7 @@ export default function TemekaSalesDashboard() {
     <tr>
       <td className="deal-name">{deal.name}</td>
       <td className="deal-amount">{fmt(deal.amount || 0)}</td>
-      <td><span className={'stage-badge ' + badge(deal.stage)}>{formatStageName(deal.stage)}</span></td>
+      <td><span className={'stage-badge ' + getStageBadgeClass(deal.stageLabel || deal.stage)}>{deal.stageLabel || deal.stage}</span></td>
       <td>{Math.round((deal.probability || 0) * 100)}%</td>
       <td><a href={'https://app.hubspot.com/contacts/8298615/record/0-3/' + deal.id} target="_blank" rel="noopener noreferrer" className="hubspot-btn">Open</a></td>
     </tr>
