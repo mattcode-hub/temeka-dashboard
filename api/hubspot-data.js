@@ -2,8 +2,7 @@
 const HUBSPOT_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
 const HUBSPOT_BASE = 'https://api.hubapi.com';
 
-// Known owner mappings as fallback (updated from HubSpot account)
-// Owner ID -> Name mapping (these are the primary sales reps)
+// Known owner ID -> name mapping (primary sales reps in this HubSpot account)
 const KNOWN_OWNERS = {
   '50294378': 'Matt Code',
   '52261992': 'Chris Isley',
@@ -48,25 +47,25 @@ async function fetchAllContacts() {
 }
 
 async function fetchOwners() {
+  // Always start with known owners as fallback
+  const map = { ...KNOWN_OWNERS };
   try {
     const res = await fetch(`${HUBSPOT_BASE}/crm/v3/owners?limit=100`, {
       headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}` }
     });
-    if (!res.ok) {
+    if (res.ok) {
+      const data = await res.json();
+      for (const o of (data.results || [])) {
+        const name = (`${o.firstName || ''} ${o.lastName || ''}`).trim() || o.email || null;
+        if (name) map[String(o.id)] = name;
+      }
+    } else {
       console.error('Owners endpoint failed:', res.status);
-      return {};
     }
-    const data = await res.json();
-    const map = { ...KNOWN_OWNERS };
-    for (const o of (data.results || [])) {
-      const name = (`${o.firstName || ''} ${o.lastName || ''}`).trim() || o.email || 'Unknown';
-      map[String(o.id)] = name;
-    }
-    return map;
   } catch (e) {
-    console.error('fetchOwners failed:', e.message);
-    return { ...KNOWN_OWNERS };
+    console.error('fetchOwners error:', e.message);
   }
+  return map;
 }
 
 export default async function handler(req, res) {
@@ -76,7 +75,6 @@ export default async function handler(req, res) {
   if (!HUBSPOT_TOKEN) return res.status(500).json({ error: 'HUBSPOT_ACCESS_TOKEN not configured' });
 
   try {
-    // Fetch deals and contacts in parallel, owners separately
     const [deals, contacts, ownerMap] = await Promise.all([
       fetchAllDeals(),
       fetchAllContacts(),
